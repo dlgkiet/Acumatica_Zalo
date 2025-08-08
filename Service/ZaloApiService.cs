@@ -3,7 +3,7 @@ using System.Net;
 
 namespace AnNhienCafe
 {
-    public static class ZaloApiHelper
+    public static class ZaloApiService
     {
         public static string RefreshToken(string appId, string appSecret, string refreshToken)
         {

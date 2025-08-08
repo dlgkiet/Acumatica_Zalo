@@ -61,8 +61,7 @@
   <ItemGroup>
     <Compile Include="DAC\ZaloToken.cs" />
     <Compile Include="DAC\ZaloUser.cs" />
-    <Compile Include="Helper\Message.cs" />
-    <Compile Include="Helper\ZaloApiHelper.cs" />
+    <Compile Include="Service\ZaloApiService.cs" />
     <Compile Include="Graph\ZaloTokenMaint.cs" />
     <Compile Include="Graph\ZaloUserMaint.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />

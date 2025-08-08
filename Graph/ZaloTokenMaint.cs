@@ -132,7 +132,7 @@ namespace AnNhienCafe
             try
             {
                 PXTrace.WriteInformation("🔄 Calling Zalo API...");
-                string response = ZaloApiHelper.RefreshToken(
+                string response = ZaloApiService.RefreshToken(
                     current.AppID,
                     current.AppSecret,
                     current.RefreshToken
@@ -193,7 +193,7 @@ namespace AnNhienCafe
             try
             {
                 PXTrace.WriteInformation("🔄 Đang tự động gọi API Zalo...");
-                string response = ZaloApiHelper.RefreshToken(
+                string response = ZaloApiService.RefreshToken(
                     token.AppID,
                     token.AppSecret,
                     token.RefreshToken

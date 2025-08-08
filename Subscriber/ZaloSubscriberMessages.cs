@@ -9,6 +9,6 @@ namespace AnNhienCafe
     public static class LocalizableMessages
     {
         public const string ZaloNotification = "Zalo Notification";
-        public const string CreateZaloNotification = "Create Zalo Notification";
+        public const string CreateZaloNotification = "Zalo Notification";
     }
 }
