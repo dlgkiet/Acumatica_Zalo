@@ -140,13 +140,16 @@ namespace ANCafe
         #endregion
 
         #region ReferenceNbr
-        [PXDBString(15, IsUnicode = true)]
+        [PXString(15, IsUnicode = true)]
         [PXUIField(DisplayName = "Reference Number")]
         [PXSelector(
             typeof(Search<INPIHeader.pIID>),
-            typeof(INPIHeader.createdDateTime),
-            typeof(INPIHeader.siteID),
-            DescriptionField = typeof(INPIHeader.siteID)
+            typeof(INPIHeader.pIID),
+            typeof(INPIHeader.countDate),
+            typeof(INPIHeader.totalVarCost),
+            typeof(INPIHeader.status),
+            SubstituteKey = typeof(INPIHeader.pIID),
+            DescriptionField = typeof(INPIHeader.pIID)
         )]
         public virtual string ReferenceNbr { get; set; }
         public abstract class referenceNbr : PX.Data.BQL.BqlString.Field<referenceNbr> { }

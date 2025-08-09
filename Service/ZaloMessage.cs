@@ -1,44 +1,103 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Reflection;
 using System.Text.RegularExpressions;
+using PX.Data;
+using PX.Data.BQL;
+using PX.Data.BQL.Fluent;
+using PX.Objects.IN;
+using PX.SM;
 
 namespace ANCafe
 {
     public static class ZaloMessage
     {
-        #region Static Methods
-        /// <summary>
-        /// Build message from template and merge data
-        /// </summary>
-        public static string BuildMessage(string template, Dictionary<string, object> mergeData)
+        public static Dictionary<string, object> GetDataFromPhysicalInventoryReview(PXGraph graph, string referenceNbr)
         {
-            if (string.IsNullOrEmpty(template) || mergeData == null)
-                return template;
+            PXTrace.WriteInformation($"Getting data for Physical Inventory Review: {referenceNbr}");
 
-            string result = template;
+            if (string.IsNullOrEmpty(referenceNbr))
+                throw new PXException(LocalizableMessages.ReferenceNbrEmpty);
 
-            foreach (var kvp in mergeData)
+            // Load Physical Inventory document by PIID
+            var header = SelectFrom<INPIHeader>
+                .Where<INPIHeader.pIID.IsEqual<@P.AsString>>
+                .View.Select(graph, referenceNbr)
+                .RowCast<INPIHeader>()
+                .FirstOrDefault();
+
+            if (header == null)
+                throw new PXException(LocalizableMessages.PIReviewNotFound, referenceNbr);
+
+            // Get warehouse info - modified to ensure site is found
+            var site = SelectFrom<INSite>
+                .Where<INSite.siteID.IsEqual<@P.AsInt>>
+                .View.Select(graph, header.SiteID)
+                .RowCast<INSite>()
+                .FirstOrDefault();
+
+            if (site == null)
+                throw new PXException(LocalizableMessages.WarehouseNotFound, header.SiteID);
+
+            // Ensure we have a valid warehouse description
+            string warehouseDescr = site.Descr?.Trim();
+            if (string.IsNullOrEmpty(warehouseDescr))
+                warehouseDescr = site.SiteCD?.Trim(); // Fallback to SiteCD if Descr is empty
+
+            // Load details with inventory items
+            var details = SelectFrom<INPIDetail>
+                .LeftJoin<InventoryItem>.On<INPIDetail.inventoryID.IsEqual<InventoryItem.inventoryID>>
+                .Where<INPIDetail.pIID.IsEqual<@P.AsString>>
+                .OrderBy<
+                    Asc<INPIDetail.inventoryID>,
+                    Asc<INPIDetail.subItemID>,
+                    Asc<INPIDetail.locationID>>
+                .View.Select(graph, header.PIID);
+
+            // Build detail lines
+            var detailLines = new List<string>();
+            foreach (PXResult<INPIDetail, InventoryItem> row in details)
             {
-                string mergeField = $"{{{{{kvp.Key}}}}}";
-                string value = kvp.Value?.ToString() ?? string.Empty;
-                result = result.Replace(mergeField, value);
+                var detail = (INPIDetail)row;
+                var item = (InventoryItem)row;
+
+                if (detail?.VarQty == 0) continue;
+
+                string qtyDisplay = detail.VarQty > 0
+                    ? $"+{detail.VarQty:N2}"
+                    : $"{detail.VarQty:N2}";
+
+                string costDisplay = detail.UnitCost.HasValue
+                    ? $"{detail.UnitCost.Value:N0}"
+                    : "0";
+
+                detailLines.Add(
+                    $"{item.InventoryCD?.Trim()} - {item.Descr?.Trim()}: " +
+                    $"{qtyDisplay} {item.BaseUnit} " +
+                    $"(Unit Cost: {costDisplay} VND)"
+                );
             }
 
-            return result;
+            return new Dictionary<string, object>
+            {
+                ["Branch"] = warehouseDescr, // Use the validated warehouse description
+                ["CheckDate"] = header.CountDate?.ToString("dd/MM/yyyy"),
+                ["CheckedBy"] = Users.PK.Find(graph, header.CreatedByID)?.Username
+                    ?? PXAccess.GetUserName(),
+                ["DocumentNbr"] = header.PIID?.Trim(),
+                ["TotalDifference"] = header.TotalVarCost.HasValue
+                    ? $"{header.TotalVarCost.Value:N0} VND"
+                    : "0 VND",
+                ["DifferenceDetails"] = detailLines.Any()
+                    ? string.Join("\n", detailLines)
+                    : LocalizableMessages.NoDifferencesFound,
+                ["Status"] = header.Status?.Trim(),
+                ["TotalPhysicalQty"] = header.TotalPhysicalQty?.ToString("N2") ?? "0.00",
+                ["TotalVarQty"] = header.TotalVarQty?.ToString("N2") ?? "0.00"
+            };
         }
 
-        /// <summary>
-        /// Create preview message with sample data
-        /// </summary>
-        public static string BuildPreviewMessage(string template)
-        {
-            var sampleData = GetSampleData();
-            return BuildMessage(template, sampleData);
-        }
-
-        /// <summary>
-        /// Validate template syntax and merge fields
-        /// </summary>
         public static ValidationResult ValidateTemplate(string template)
         {
             var result = new ValidationResult { IsValid = true };
@@ -46,14 +105,12 @@ namespace ANCafe
             if (string.IsNullOrEmpty(template))
             {
                 result.IsValid = false;
-                result.ErrorMessage = "Template cannot be empty";
+                result.ErrorMessage = LocalizableMessages.TemplateEmpty;
                 return result;
             }
 
-            // Check valid merge field syntax
             var mergeFieldPattern = @"\{\{([^}]+)\}\}";
             var matches = Regex.Matches(template, mergeFieldPattern);
-
             var validFields = GetValidMergeFields();
 
             foreach (Match match in matches)
@@ -67,84 +124,76 @@ namespace ANCafe
                 }
             }
 
-            // Check template length
             if (template.Length > 4000)
             {
                 result.IsValid = false;
-                result.ErrorMessage = "Template is too long (maximum 4000 characters)";
+                result.ErrorMessage = LocalizableMessages.TemplateTooLong;
                 return result;
             }
 
             return result;
         }
 
-        /// <summary>
-        /// Get list of available merge fields
-        /// </summary>
         public static HashSet<string> GetValidMergeFields()
         {
-            return new HashSet<string>
+            var fields = new HashSet<string>
             {
-                "Branch", "CheckDate", "CheckedBy",
-                "DocumentNbr", "TotalDifference", "DifferenceDetails"
+                "Branch", "CheckDate", "CheckedBy", "DocumentNbr",
+                "TotalDifference", "DifferenceDetails",
+                "Status", "TotalPhysicalQty", "TotalVarQty"
             };
+
+            // Thêm tất cả property của ZaloTemplate trừ NoteID
+            var templateProps = typeof(ZaloTemplate).GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                .Where(p => !string.Equals(p.Name, "NoteID", StringComparison.OrdinalIgnoreCase));
+            foreach (var prop in templateProps)
+                fields.Add(prop.Name);
+
+            // Thêm các trường của INPIHeader 
+            var headerProps = typeof(INPIHeader).GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                .Where(p => !string.Equals(p.Name, "NoteID", StringComparison.OrdinalIgnoreCase));
+            foreach (var prop in headerProps)
+                fields.Add(prop.Name);
+
+            return fields;
         }
 
-        /// <summary>
-        /// Get sample data for preview
-        /// </summary>
-        public static Dictionary<string, object> GetSampleData()
+        public static string BuildMessage(string template, Dictionary<string, object> mergeData)
         {
-            return new Dictionary<string, object>
+            PXTrace.WriteInformation(LocalizableMessages.BuildMessageCalled, template);
+
+            if (string.IsNullOrEmpty(template))
             {
-                ["Branch"] = "Branch District 1 - HCMC",
-                ["CheckDate"] = DateTime.Now.ToString("dd/MM/yyyy HH:mm"),
-                ["CheckedBy"] = "John Smith",
-                ["DocumentNbr"] = "PI-2024-001",
-                ["TotalDifference"] = FormatCurrency(1500000),
-                ["DifferenceDetails"] = BuildSampleDetail()
-            };
+                PXTrace.WriteWarning(LocalizableMessages.TemplateNullEmpty);
+                return template;
+            }
+
+            if (mergeData == null)
+            {
+                PXTrace.WriteWarning(LocalizableMessages.MergeDataNull);
+                throw new PXException(LocalizableMessages.NoDataFound);
+            }
+
+            string result = template;
+            foreach (var kvp in mergeData)
+            {
+                string mergeField = $"{{{{{kvp.Key}}}}}";
+                string value = kvp.Value?.ToString() ?? string.Empty;
+                result = result.Replace(mergeField, value);
+                PXTrace.WriteInformation(LocalizableMessages.ReplacingField, mergeField, value);
+            }
+
+            return result;
         }
 
-        /// <summary>
-        /// Format currency amount
-        /// </summary>
-        private static string FormatCurrency(decimal amount)
+        public static string BuildPreviewMessage(string template, PXGraph graph, string referenceNbr)
         {
-            return amount.ToString("#,##0") + " VND";
+            PXTrace.WriteInformation($"BuildPreviewMessage called with referenceNbr: {referenceNbr}");
+            var data = GetDataFromPhysicalInventoryReview(graph, referenceNbr);
+            return BuildMessage(template, data);
         }
-
-        /// <summary>
-        /// Create sample detail string
-        /// </summary>
-        private static string BuildSampleDetail()
-        {
-            return @"SURPLUS ITEMS:
-• Laptop Dell XPS 13: +2 pcs (40,000,000 VND)
-• Mouse Logitech MX: +5 pcs (2,500,000 VND)
-
-SHORTAGE ITEMS:
-• Monitor Samsung 27"": -1 pc (-8,000,000 VND)
-• Mechanical Keyboard: -3 pcs (-6,000,000 VND)
-
-Total Difference: +1,500,000 VND";
-        }
-
-        /// <summary>
-        /// Get real data from Generic Inquiry (to be implemented later)
-        /// </summary>
-        public static Dictionary<string, object> GetDataFromGenericInquiry(string inquiryName, Dictionary<string, object> parameters = null)
-        {
-            // TODO: Implement GI integration
-            // Currently return sample data
-            return GetSampleData();
-        }
-        #endregion
     }
 
-    /// <summary>
-    /// Validation result class
-    /// </summary>
     public class ValidationResult
     {
         public bool IsValid { get; set; }

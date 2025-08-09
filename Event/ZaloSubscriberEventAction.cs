@@ -4,6 +4,7 @@ using PX.Data;
 using System;
 using System.Threading;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace ANCafe
 {
@@ -98,52 +99,35 @@ namespace ANCafe
         {
             var mergeData = new Dictionary<string, object>();
 
-            // Mapping phải trùng với GetValidMergeFields() trong ZaloMessage.cs
-            var fieldMap = new Dictionary<string, string>
-            {
-                ["Branch"] = "BranchID",
-                ["CheckDate"] = "Date",
-                ["CheckedBy"] = "CreatedByID", 
-                ["DocumentNbr"] = "RefNbr",
-                ["TotalDifference"] = "TotalDiff",
-                ["DifferenceDetails"] = "DetailDiff"
-            };
-
             try
             {
-                if (eventRow?.NewRow != null)
-                {
-                    var row = eventRow.NewRow;
+                if (eventRow?.NewRow == null)
+                    throw new PXException(LocalizableMessages.NoEventRowData);
 
-                    foreach (var map in fieldMap)
-                    {
-                        var value = GetFieldValue(row, map.Value);
-                        // If no value, use reasonable defaults
-                        if (string.IsNullOrEmpty(value))
-                        {
-                            if (map.Key == "CheckDate")
-                                value = DateTime.Now.ToString("dd/MM/yyyy HH:mm");
-                            else if (map.Key == "CheckedBy")
-                                value = "System";
-                            else if (map.Key == "TotalDifference")
-                                value = "0 VND";
-                            else if (map.Key == "DifferenceDetails")
-                                value = "Details will be updated";
-                            else
-                                value = "N/A";
-                        }
-                        mergeData[map.Key] = value;
-                    }
-                }
-                else
-                {
-                    mergeData = ZaloMessage.GetSampleData();
-                }
+                var row = eventRow.NewRow;
+                var graph = PXGraph.CreateInstance<PX.Objects.IN.INPIReview>();
+
+                // Lấy reference number từ event row
+                var referenceNbr = GetFieldValue(row, "RefNbr") ?? 
+                    throw new PXException(LocalizableMessages.NoReferenceNumber);
+
+                // Lấy dữ liệu thực từ Physical Inventory Review
+                mergeData = ZaloMessage.GetDataFromPhysicalInventoryReview(graph, referenceNbr);
+
+                // Log thông tin
+                PXTrace.WriteInformation(
+                    "Extracted merge data for reference number {0}: {1}", 
+                    referenceNbr,
+                    string.Join(", ", mergeData.Select(x => $"{x.Key}={x.Value}"))
+                );
             }
             catch (Exception ex)
             {
-                PXTrace.WriteWarning("Error extracting merge data, using sample data: {0}", ex.Message);
-                mergeData = ZaloMessage.GetSampleData();
+                PXTrace.WriteError("Error extracting merge data: {0}", ex.Message);
+                throw new PXException(
+                    LocalizableMessages.ErrorExtractingData, 
+                    ex.Message
+                );
             }
 
             return mergeData;
@@ -157,8 +141,13 @@ namespace ANCafe
                 var value = prop?.GetValue(row, null);
                 return value?.ToString();
             }
-            catch
+            catch (Exception ex)
             {
+                PXTrace.WriteWarning(
+                    "Error getting field value for {0}: {1}", 
+                    fieldName, 
+                    ex.Message
+                );
                 return null;
             }
         }

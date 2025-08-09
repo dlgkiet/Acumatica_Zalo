@@ -32,6 +32,35 @@ namespace ANCafe
         public const string TemplateNotFoundForRedirect = "Template not found for redirect: {0}";
         public const string TemplateNotFound = "Template not found";
         public const string TemplateInvalidCannotPreview = "Template invalid: {0}. Cannot create preview.";
+        // Template validation
+        public const string TemplateEmpty = "Template cannot be empty";
+        public const string TemplateTooLong = "Template is too long (maximum 4000 characters)";
+        public const string InvalidMergeField = "Invalid merge field: {0}";
+
+        // Data validation
+        public const string ReferenceNbrEmpty = "Reference number cannot be empty";
+        public const string PIReviewNotFound = "Physical Inventory Review {0} not found";
+        public const string WarehouseNotFound = "Warehouse not found for SiteID: {0}";
+
+        // Default text
+        public const string UnknownWarehouse = "Unknown Warehouse";
+        public const string NoDifferencesFound = "No differences found";
+        public const string UnitCostFormat = "Unit Cost: {0} VND";
+
+        // Log messages
+        public const string BuildMessageCalled = "BuildMessage called with template: {0}";
+        public const string TemplateNullEmpty = "Template is null or empty";
+        public const string MergeDataNull = "MergeData is null, using sample data";
+        public const string ReplacingField = "Replacing {0} with {1}";
+        public const string GettingPIData = "Getting data for Physical Inventory Review: {0}";
+        public const string MergeDataCreated = "Merge data created successfully";
+        public const string BuildPreviewCalled = "BuildPreviewMessage called with referenceNbr: {0}";
+
+        public const string NoDataFound = "No data found for the selected reference number.";
+        public const string NoEventRowData = "No event row data available";
+        public const string NoReferenceNumber = "Reference number not found in event data";
+        public const string ErrorExtractingData = "Error extracting data: {0}";
+
     }
 }
 

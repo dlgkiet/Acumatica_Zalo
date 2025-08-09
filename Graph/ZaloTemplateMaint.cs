@@ -25,84 +25,32 @@ namespace ANCafe
         #endregion
 
         #region Actions
-        public PXAction<ZaloTemplate> showPreview;
-        [PXUIField(DisplayName = "Show Preview Message", MapEnableRights = PXCacheRights.Select)]
-        [PXButton]
-        public virtual IEnumerable ShowPreview(PXAdapter adapter)
-        {
-            var template = Templates.Current;
-            if (template != null && !string.IsNullOrEmpty(template.Body))
-            {
-                try
-                {
-                    // Validate template trước khi tạo preview
-                    var validationResult = ZaloMessage.ValidateTemplate(template.Body);
-
-                    if (!validationResult.IsValid)
-                    {
-                        Templates.Ask(LocalizableMessages.ValidationErrorTitle,
-                            string.Format(LocalizableMessages.TemplateInvalidCannotPreview, validationResult.ErrorMessage),
-                            MessageButtons.OK, MessageIcon.Error);
-                        return adapter.Get();
-                    }
-
-                    // Chỉ tạo preview nếu template hợp lệ
-                    var previewMessage = ZaloMessage.BuildPreviewMessage(template.Body);
-
-                    Templates.Ask(LocalizableMessages.PreviewMessageTitle, previewMessage, MessageButtons.OK, MessageIcon.Information);
-                }
-                catch (Exception ex)
-                {
-                    Templates.Ask(LocalizableMessages.ErrorTitle, string.Format(LocalizableMessages.PreviewError, ex.Message), MessageButtons.OK, MessageIcon.Error);
-                }
-            }
-            else
-            {
-                Templates.Ask(LocalizableMessages.WarningTitle, LocalizableMessages.EnterTemplateFirst, MessageButtons.OK, MessageIcon.Warning);
-            }
-
-            return adapter.Get();
-        }
-
         public PXAction<ZaloTemplate> insertMergeField;
         [PXUIField(DisplayName = "Insert Merge Field", MapEnableRights = PXCacheRights.Select)]
         [PXButton]
         public virtual IEnumerable InsertMergeField(PXAdapter adapter)
         {
-            var mergeFields = ZaloMessage.GetValidMergeFields();
-            var fieldList = string.Join(", ", mergeFields.Select(f => $"{{{{{f}}}}}"));
+            var template = @"
+🏪 Chi nhánh: {{Branch}}
+📅 Ngày kiểm kê: {{CheckDate}}
+👤 Người kiểm: {{CheckedBy}}
+📝 Số phiếu: {{DocumentNbr}}
 
-            Templates.Ask(LocalizableMessages.AvailableMergeFieldsTitle,
-                string.Format(LocalizableMessages.AvailableMergeFields, fieldList),
+💰 Tổng chênh lệch: {{TotalDifference}}
+
+📋 Chi tiết chênh lệch:
+{{DifferenceDetails}}
+
+Trạng thái: {{Status}}
+Tổng số lượng kiểm: {{TotalPhysicalQty}}
+Tổng chênh lệch số lượng: {{TotalVarQty}}";
+
+            Templates.Ask(
+                "Template Mẫu",
+                "Copy template mẫu dưới đây:\n\n" + template,
                 MessageButtons.OK,
-                MessageIcon.Information);
-
-            return adapter.Get();
-        }
-
-        public PXAction<ZaloTemplate> validateTemplate;
-        [PXUIField(DisplayName = "Validate Template", MapEnableRights = PXCacheRights.Select)]
-        [PXButton]
-        public virtual IEnumerable ValidateTemplate(PXAdapter adapter)
-        {
-            var template = Templates.Current;
-            if (template != null && !string.IsNullOrEmpty(template.Body))
-            {
-                var validationResult = ZaloMessage.ValidateTemplate(template.Body);
-
-                if (validationResult.IsValid)
-                {
-                    Templates.Ask(LocalizableMessages.ValidationResultTitle, LocalizableMessages.TemplateValid, MessageButtons.OK, MessageIcon.Information);
-                }
-                else
-                {
-                    Templates.Ask(LocalizableMessages.ValidationErrorTitle, string.Format(LocalizableMessages.TemplateInvalid, validationResult.ErrorMessage), MessageButtons.OK, MessageIcon.Error);
-                }
-            }
-            else
-            {
-                Templates.Ask(LocalizableMessages.WarningTitle, LocalizableMessages.EnterTemplateToValidate, MessageButtons.OK, MessageIcon.Warning);
-            }
+                MessageIcon.Information
+            );
 
             return adapter.Get();
         }
@@ -111,19 +59,20 @@ namespace ANCafe
         #region Events
         protected virtual void _(Events.RowSelected<ZaloTemplate> e)
         {
-            if (e.Row == null) return;
+            var row = e.Row;
+            if (row == null) return;
 
-            var hasBody = !string.IsNullOrEmpty(e.Row.Body);
-            showPreview.SetEnabled(hasBody);
-            validateTemplate.SetEnabled(hasBody);
-            insertMergeField.SetEnabled(true);
+            if (!string.IsNullOrEmpty(row.ReferenceNbr))
+            {
+                row.PreviewMessage = ZaloMessage.BuildPreviewMessage(row.Body, this, row.ReferenceNbr);
+            }
         }
 
         protected virtual void _(Events.RowPersisting<ZaloTemplate> e)
         {
             if (e.Row == null) return;
 
-            // Validate template trước khi save
+            // Validate template as before
             if (!string.IsNullOrEmpty(e.Row.Body))
             {
                 var validationResult = ZaloMessage.ValidateTemplate(e.Row.Body);
