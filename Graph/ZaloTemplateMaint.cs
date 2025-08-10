@@ -209,7 +209,7 @@ namespace AnNhienCafe
 
         private bool _isSending = false;
 
-        private string RefreshZaloToken()
+        public string RefreshZaloToken()
         {
             try
             {
@@ -258,7 +258,7 @@ namespace AnNhienCafe
                 .ToList();
         }
 
-        private List<string> SplitRecipients(params string[] fields)
+        public List<string> SplitRecipients(params string[] fields)
         {
             var all = new List<string>();
             foreach (var field in fields)
@@ -272,7 +272,7 @@ namespace AnNhienCafe
             return all.Distinct().ToList();
         }
 
-        private string MergeInventoryReviewMessage(string templateBody, string referenceNbr)
+        public string MergeInventoryReviewMessage(string templateBody, string referenceNbr)
         {
             try
             {

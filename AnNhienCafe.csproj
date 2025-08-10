@@ -65,6 +65,7 @@
   <ItemGroup>
     <Compile Include="DAC\ZaloToken.cs" />
     <Compile Include="DAC\ZaloUser.cs" />
+    <Compile Include="Graph\PhysicalInventoryReviewMaint.cs" />
     <Compile Include="Service\MessageMergeHelper.cs" />
     <Compile Include="Service\ZaloApiService.cs" />
     <Compile Include="Graph\ZaloTokenMaint.cs" />
