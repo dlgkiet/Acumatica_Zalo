@@ -1,0 +1,37 @@
+# Build results
+/bin/
+/obj/
+
+# User-specific files
+.vs/
+*.user
+*.suo
+
+# Visual Studio Code
+.vscode/
+
+# Backup & logs
+*.log
+*.tmp
+
+# Auto-generated files
+*.cache
+*.dbmdl
+*.bak
+*.orig
+
+# Publish results
+*.publish.xml
+
+# Rider & ReSharper
+.idea/
+*.DotSettings.user
+
+# NuGet
+*.nupkg
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# Others
+Generated_Code/
