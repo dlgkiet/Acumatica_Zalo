@@ -1,62 +1,92 @@
-﻿using PX.Data;
-using PX.BusinessProcess.Subscribers.Factories;
+﻿using AnNhienCafe;
 using PX.BusinessProcess.DAC;
 using PX.BusinessProcess.Event;
 using PX.BusinessProcess.Subscribers.ActionHandlers;
+using PX.BusinessProcess.Subscribers.Factories;
 using PX.BusinessProcess.UI;
+using PX.Data;
 using PX.SM;
+using System;
 using System.Collections.Generic;
 using System.Linq;
-using System;
 
 namespace AnNhienCafe
 {
-    // Thêm vào ZaloSubscriberHandlerFactory để trigger registration
+    /// <summary>
+    /// Factory for Zalo subscriber event handlers.
+    /// </summary>
     public class ZaloSubscriberHandlerFactory : IBPSubscriberActionHandlerFactoryWithCreateAction
     {
-        // Static constructor để tự động trigger registration
+        #region Static Constructor
+
+        // Static constructor to trigger registration
         static ZaloSubscriberHandlerFactory()
         {
             ZaloFactoryRegistration.Initialize();
         }
 
-        // Các method của bạn giữ nguyên...
+        #endregion
+
+        #region Properties
+
+        public static class LocalizableMessages
+        {
+            public const string ZaloNotification = "Zalo Notification";
+            public const string CreateZaloNotification = "Zalo Notification";
+        }
+        public string Type => "ZALO";
+
+        public string TypeName => LocalizableMessages.ZaloNotification;
+
+        public string CreateActionName => "NewZaloNotification";
+
+        public string CreateActionLabel => LocalizableMessages.CreateZaloNotification;
+
+        #endregion
+
+        #region Public Methods
+
+        /// <summary>
+        /// Creates the event action handler for Zalo.
+        /// </summary>
         public IEventAction CreateActionHandler(Guid handlerId, bool stopOnError, IEventDefinitionsProvider eventDefinitionsProvider)
         {
-            var graph = PXGraph.CreateInstance<PXGraph>();
-            var notification = PXSelect<Notification,
-                Where<Notification.noteID, Equal<Required<Notification.noteID>>>>
-                .Select(graph, handlerId)
-                .FirstOrDefault();
-            return new ZaloSubscriberEventAction(handlerId, notification);
+            return new ZaloSubscriberEventAction(handlerId);
         }
 
+        /// <summary>
+        /// Gets the list of handlers for the current screen.
+        /// </summary>
         public IEnumerable<BPHandler> GetHandlers(PXGraph graph)
         {
-            return PXSelect<Notification,
-                    Where<Notification.screenID, Equal<Current<BPEvent.screenID>>,
-                        Or<Current<BPEvent.screenID>, IsNull>>>
-                .Select(graph).FirstTableItems
-                .Where(c => c != null)
-                .Select(c => new BPHandler
+            return PXSelect<
+                ZaloTemplate,
+                Where<ZaloTemplate.screen, Equal<Current<BPEvent.screenID>>,
+                      Or<Current<BPEvent.screenID>, IsNull>>>
+                .Select(graph)
+                .FirstTableItems
+                .Where(t => t != null)
+                .Select(t => new BPHandler
                 {
-                    Id = c.NoteID,
-                    Name = c.Name,
+                    Id = t.SubscriberID,
+                    Name = t.Subject ?? $"Template {t.NotificationID}",
                     Type = LocalizableMessages.ZaloNotification
                 });
         }
 
         public void RedirectToHandler(Guid? handlerId)
         {
-            var graph = PXGraph.CreateInstance<SMNotificationMaint>();
-            graph.Message.Current = graph.Notifications.Search<Notification.noteID>(handlerId);
-            PXRedirectHelper.TryRedirect(graph, PXRedirectHelper.WindowMode.New);
-        }
+            var graph = PXGraph.CreateInstance<ZaloTemplateMaint>();
 
-        public string Type => "ZALO";
-        public string TypeName => LocalizableMessages.ZaloNotification;
-        public string CreateActionName => "NewZaloNotification";
-        public string CreateActionLabel => LocalizableMessages.CreateZaloNotification;
+            var template = PXSelect<ZaloTemplate,
+                Where<ZaloTemplate.subscriberID, Equal<Required<ZaloTemplate.subscriberID>>>>
+                .Select(graph, handlerId);
+
+            if (template != null)
+                graph.Templates.Current = template;
+
+            PXRedirectHelper.TryRedirect(graph, PXRedirectHelper.WindowMode.NewWindow);
+        }
 
         public Tuple<PXButtonDelegate, PXEventSubscriberAttribute[]> getCreateActionDelegate(BusinessProcessEventMaint maintGraph)
         {
@@ -65,30 +95,38 @@ namespace AnNhienCafe
                 if (maintGraph.Events?.Current?.ScreenID == null)
                     return adapter.Get();
 
-                var graph = PXGraph.CreateInstance<SMNotificationMaint>();
-                var cache = graph.Caches<Notification>();
-                var notification = (Notification)cache.CreateInstance();
-                var row = cache.InitNewRow(notification);
-                row.ScreenID = maintGraph.Events.Current.ScreenID;
-                cache.Insert(row);
+                var graph = PXGraph.CreateInstance<ZaloTemplateMaint>();
+                var cache = graph.Templates.Cache;
 
-                var subscriber = new BPEventSubscriber();
-                var subscriberRow = maintGraph.Subscribers.Cache.InitNewRow(subscriber);
-                subscriberRow.Type = Type;
-                subscriberRow.HandlerID = row.NoteID;
-                graph.Caches[typeof(BPEventSubscriber)].Insert(subscriberRow);
+                var newTemplate = (ZaloTemplate)cache.CreateInstance();
+                newTemplate.SubscriberID = Guid.NewGuid();
+                newTemplate.Description = "NEW";
+                newTemplate.Subject = "";
+                newTemplate.Screen = maintGraph.Events.Current.ScreenID;
+                newTemplate.Body = "An Nhiên Cafe - Thông báo kết quả kiểm kê:\r\n\n- Chi nhánh: {{ChiNhanh}}\r\n- Ngày kiểm kê: {{NgayKiemKe}}\r\n- Người kiểm kê: {{NguoiKiemKe}}\r\nSố phiếu kiểm kê. {{SoPhieu}}\r\n\nTổng chênh lệch: {{TongChenhlech}}:\r\n\n{{ChiTietChenhlech}}\r\nVui lòng kiểm tra lại phiếu và phản hồi nếu có sai lệch.";
+                newTemplate.ActivityType = "ZALO";
 
+                var inserted = cache.Insert(newTemplate);
+                graph.Templates.Current = (ZaloTemplate)inserted;
+
+                graph.Actions.PressSave();
+
+                var newSubscriberRow = new BPEventSubscriber
+                {
+                    Type = Type,
+                    HandlerID = newTemplate.SubscriberID
+                };
+
+                maintGraph.Subscribers.Cache.Insert(newSubscriberRow);
                 PXRedirectHelper.TryRedirect(graph, PXRedirectHelper.WindowMode.NewWindow);
                 return adapter.Get();
             };
 
             return Tuple.Create(handler, new PXEventSubscriberAttribute[]
             {
-                new PXButtonAttribute
-                {
-                    OnClosingPopup = PXSpecialButtonType.Refresh
-                }
+        new PXButtonAttribute { OnClosingPopup = PXSpecialButtonType.Refresh }
             });
         }
+        #endregion
     }
 }

@@ -1,13 +1,14 @@
-﻿using PX.Data;
+using PX.Data;
 using PX.Data.BQL;
 using PX.Objects.IN;
 using PX.SM;
 using System;
 
-namespace ANCafe
+namespace AnNhienCafe
 {
     [Serializable]
     [PXCacheName("Zalo Template")]
+    [PXPrimaryGraph(typeof(ZaloTemplateMaint))]
     public class ZaloTemplate : PXBqlTable, IBqlTable
     {
         #region NotificationID
@@ -49,7 +50,7 @@ namespace ANCafe
 
         #region From
         [PXDBString(255, IsUnicode = true)]
-        [PXUIField(DisplayName = "From User")]
+        [PXUIField(DisplayName = "From")]
         [PXSelector(typeof(Search<Users.username>),
                     typeof(Users.username),
                     typeof(Users.firstName),
@@ -61,43 +62,43 @@ namespace ANCafe
         #endregion
 
         #region To
-        [PXDBString(1000, IsUnicode = true)]
+        [PXDBString(1000, IsUnicode = false)]
         [PXUIField(DisplayName = "To Users")]
-        [PXSelector(
-            typeof(Search<Users.username>),
-            typeof(Users.username),
-            typeof(Users.firstName),
-            typeof(Users.lastName),
-            SubstituteKey = typeof(Users.username),
-            DescriptionField = typeof(Users.firstName))]
+        [PXSelector(typeof(Search<ZaloUser.zaloUserID,
+                           Where<ZaloUser.isActive, Equal<True>>>),
+                    typeof(ZaloUser.zaloUserID),
+                    typeof(ZaloUser.name),
+                    typeof(ZaloUser.role),
+                    SubstituteKey = typeof(ZaloUser.zaloUserID),
+                    DescriptionField = typeof(ZaloUser.name))]
         public virtual string To { get; set; }
         public abstract class to : PX.Data.BQL.BqlString.Field<to> { }
         #endregion
 
         #region Cc
-        [PXDBString(1000, IsUnicode = true)]
+        [PXDBString(1000, IsUnicode = false)]
         [PXUIField(DisplayName = "CC Users")]
-        [PXSelector(
-            typeof(Search<Users.username>),
-            typeof(Users.username),
-            typeof(Users.firstName),
-            typeof(Users.lastName),
-            SubstituteKey = typeof(Users.username),
-            DescriptionField = typeof(Users.firstName))]
+        [PXSelector(typeof(Search<ZaloUser.zaloUserID,
+                           Where<ZaloUser.isActive, Equal<True>>>),
+                    typeof(ZaloUser.zaloUserID),
+                    typeof(ZaloUser.name),
+                    typeof(ZaloUser.role),
+                    SubstituteKey = typeof(ZaloUser.zaloUserID),
+                    DescriptionField = typeof(ZaloUser.name))]
         public virtual string Cc { get; set; }
         public abstract class cc : PX.Data.BQL.BqlString.Field<cc> { }
         #endregion
 
         #region Bcc
-        [PXDBString(1000, IsUnicode = true)]
+        [PXDBString(1000, IsUnicode = false)]
         [PXUIField(DisplayName = "BCC Users")]
-        [PXSelector(
-            typeof(Search<Users.username>),
-            typeof(Users.username),
-            typeof(Users.firstName),
-            typeof(Users.lastName),
-            SubstituteKey = typeof(Users.username),
-            DescriptionField = typeof(Users.firstName))]
+        [PXSelector(typeof(Search<ZaloUser.zaloUserID,
+                           Where<ZaloUser.isActive, Equal<True>>>),
+                    typeof(ZaloUser.zaloUserID),
+                    typeof(ZaloUser.name),
+                    typeof(ZaloUser.role),
+                    SubstituteKey = typeof(ZaloUser.zaloUserID),
+                    DescriptionField = typeof(ZaloUser.name))]
         public virtual string Bcc { get; set; }
         public abstract class bcc : PX.Data.BQL.BqlString.Field<bcc> { }
         #endregion
@@ -164,6 +165,20 @@ namespace ANCafe
         [PXUIField(DisplayName = "Preview Message", Enabled = false)]
         public virtual string PreviewMessage { get; set; }
         public abstract class previewMessage : PX.Data.BQL.BqlString.Field<previewMessage> { }
+        #endregion
+
+        #region Result
+        [PXDBString(4000, IsUnicode = true)]
+        [PXUIField(DisplayName = "Send Result", Enabled = false)]
+        public virtual string Result { get; set; }
+        public abstract class result : PX.Data.BQL.BqlString.Field<result> { }
+        #endregion
+
+        #region Status
+        [PXDBString(50, IsUnicode = true)]
+        [PXUIField(DisplayName = "Send Status", Enabled = false)]
+        public virtual string Status { get; set; }
+        public abstract class status : PX.Data.BQL.BqlString.Field<status> { }
         #endregion
 
         #region System Columns

@@ -1,31 +1,53 @@
-﻿using PX.BusinessProcess.Subscribers.ActionHandlers;
-using PX.Data.BusinessProcess;
+﻿using PX.BusinessProcess.Event;
+using PX.BusinessProcess.Subscribers.ActionHandlers;
 using PX.Data;
+using PX.Data.BusinessProcess;
 using System;
+using System.Reflection;
 using System.Threading;
-using PX.SM;
 
 namespace AnNhienCafe
 {
-    public class ZaloSubscriberEventAction : IEventAction
+    public class ZaloSubscriberEventAction : EventActionBase
     {
-        public Guid Id { get; set; }
-        public string Name { get; protected set; }
-        private readonly Notification _notificationTemplate;
+        private readonly Guid _handlerID;
 
-        public void Process(MatchedRow[] eventRows, CancellationToken cancellation)
+        public ZaloSubscriberEventAction(Guid handlerID) : base(handlerID)
         {
-            PXTrace.WriteInformation("ZALO subscriber triggered!");
-
-            // Lấy thông tin từ event nếu cần
-            // Gửi Zalo hoặc xử lý custom logic ở đây
+            _handlerID = handlerID;
         }
 
-        public ZaloSubscriberEventAction(Guid id, Notification notification)
+        public void Execute(object rowObject)
         {
-            Id = id;
-            Name = notification.Name;
-            _notificationTemplate = notification;
+            PXTrace.WriteInformation($"[ZALO] Triggered ZaloSubscriberEventAction for handlerID = {_handlerID}");
+
+            if (rowObject != null)
+            {
+                Type rowType = rowObject.GetType();
+                foreach (PropertyInfo prop in rowType.GetProperties())
+                {
+                    try
+                    {
+                        object value = prop.GetValue(rowObject);
+                        PXTrace.WriteInformation($"{prop.Name} = {value}");
+                    }
+                    catch { }
+                }
+            }
+            else
+            {
+                PXTrace.WriteWarning("Row object is null.");
+            }
+        }
+
+        public override void Process(MatchedRow[] matches, CancellationToken cancellationToken)
+        {
+            foreach (var match in matches)
+            {
+                var rowProperty = match.GetType().GetProperty("Row", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                var rowObject = rowProperty?.GetValue(match);
+                Execute(rowObject);
+            }
         }
     }
 }
