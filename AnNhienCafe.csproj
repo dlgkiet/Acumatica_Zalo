@@ -63,6 +63,7 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="DAC\EntityItem.cs" />
     <Compile Include="DAC\ZaloToken.cs" />
     <Compile Include="DAC\ZaloUser.cs" />
     <Compile Include="Graph\PhysicalInventoryReviewMaint.cs" />

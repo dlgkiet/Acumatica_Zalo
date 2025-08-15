@@ -1,5 +1,6 @@
 ﻿using PX.Common;
 using PX.Data;
+using PX.Metadata;
 using PX.Objects.IN;
 using PX.SM;
 using System;
@@ -7,6 +8,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Web.Compilation;
 
 namespace AnNhienCafe
 {
@@ -17,6 +19,42 @@ namespace AnNhienCafe
         public PXSelect<ZaloTemplate> Templates;
         public PXSelect<ZaloTemplate, Where<ZaloTemplate.notificationID, Equal<Current<ZaloTemplate.notificationID>>>> CurrentNotification;
         public PXSelect<INPIHeader, Where<INPIHeader.pIID, Equal<Current<ZaloTemplate.referenceNbr>>>> PIHeader;
+
+        public PXSelect<EntityItem> EntityItems;
+
+        public IEnumerable entityItems()
+        {
+            var current = Templates.Current; // Hoặc CurrentNotification.Current
+            if (current == null || string.IsNullOrEmpty(current.Screen))
+                yield break;
+
+            var info = PX.Api.ScreenUtils.ScreenInfo.TryGet(current.Screen);
+            if (info == null)
+                yield break;
+
+            // Lấy Graph instance
+            var graphType = PXBuildManager.GetType(info.GraphName, false);
+            if (graphType == null)
+                yield break;
+
+            var graph = (PXGraph)Activator.CreateInstance(graphType);
+
+            // Lấy view chính
+            var view = graph.Views[info.PrimaryView];
+            var cache = view.Cache;
+
+            foreach (var field in cache.Fields)
+            {
+                var displayName = PXUIFieldAttribute.GetDisplayName(cache, field) ?? field;
+                yield return new EntityItem
+                {
+                    Key = field,
+                    Name = displayName,
+                    Path = $"[{field}]",
+                    Icon = "Doc"
+                };
+            }
+        }
 
         #region Actions
         #region Show Preview Message
