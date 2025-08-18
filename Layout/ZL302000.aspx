@@ -48,7 +48,7 @@
 
             <!-- Preview Message -->
             <px:PXLayoutRule runat="server" StartRow="True" LabelsWidth="M" ControlSize="XXL" />
-            <px:PXTextEdit ID="edPreviewMessage" runat="server" DataField="PreviewMessage" TextMode="MultiLine" Height="200px" Width="100%" Style="font-family: 'Courier New', monospace; background-color: #f9f9f9;" />
+            <px:PXTextEdit ID="edPreviewMessage" runat="server" DataField="PreviewMessage" TextMode="MultiLine" Height="200px" Width="100%" />
         </Template>
     </px:PXFormView>
 
@@ -57,8 +57,9 @@
         <Items>
             <px:PXTabItem Text="Message">
                 <Template>
-                    <px:PXRichTextEdit ID="edBody" runat="server" DataField="Body" AllowInsertParameter="True" AllowSourceMode="True" AllowSearch="True"
-                        AllowPlaceholders="True" AllowMacros="True" AllowImages="True" AllowTables="True" Style="width: 100%;">
+                    <px:PXRichTextEdit ID="edBody" runat="server" DataField="Body" AllowInsertParameter="True" AllowSourceMode="True"
+                        AllowSearch="True" AllowPlaceholders="True" AllowMacros="True" AllowImages="True" AllowTables="True"
+                        Style="width: 100%" CommitChanges="True">
                         <AutoSize Enabled="True" MinHeight="400" />
                         <InsertDatafield DataSourceID="ds" DataMember="EntityItems" TextField="Name" ValueField="Path" ImageField="Icon" />
                     </px:PXRichTextEdit>

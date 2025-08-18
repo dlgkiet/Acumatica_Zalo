@@ -154,8 +154,9 @@ namespace AnNhienCafe
         #endregion
 
         #region Body
-        [PXDBString(4000, IsUnicode = true)]
-        [PXUIField(DisplayName = "Message Body")]
+        [PXDBText(IsUnicode = true)]
+        [PXUIField(DisplayName = "Body")]
+        [PXNoteText] 
         public virtual string Body { get; set; }
         public abstract class body : PX.Data.BQL.BqlString.Field<body> { }
         #endregion
