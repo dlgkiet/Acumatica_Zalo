@@ -135,7 +135,6 @@ namespace AnNhienCafe
                                 extraInfo = user?.FullName;
                             }
                         }
-                        PXTrace.WriteInformation($"[EntityItems] System field detected: {sysField}, display={displayName}");
                         result.Add(new EntityItem
                         {
                             Key = sysField,
@@ -164,32 +163,7 @@ namespace AnNhienCafe
             return systemFields.Contains(fieldName, StringComparer.OrdinalIgnoreCase);
         }
 
-
-        //    private static bool IsSystemField(string fieldName)
-        //    {
-        //        string[] systemFields =
-        //        {
-        //    "CreatedByID", "CreatedDateTime", "CreatedByScreenID",
-        //    "LastModifiedByID", "LastModifiedDateTime", "LastModifiedByScreenID",
-        //    "NoteID", "tstamp"
-        //};
-        //        return systemFields.Contains(fieldName, StringComparer.OrdinalIgnoreCase);
-        //    }
-
-        //public IEnumerable EntityItemsWithPrevious()
-        //{
-        //    foreach (PX.SM.SiteMap map in PXSelect<PX.SM.SiteMap>.Select(this))
-        //    {
-        //        yield return new SiteMapView
-        //        {
-        //            Path = map.ScreenID,
-        //            Name = map.Title
-        //        };
-        //    }
-        //}
-
         public PXAction<ZaloTemplate> PreviewMess;
-
         [PXButton(CommitChanges = true)]
         [PXUIField(DisplayName = "Show Message Preview")]
         protected virtual IEnumerable previewMess(PXAdapter adapter)
@@ -197,12 +171,10 @@ namespace AnNhienCafe
             ZaloTemplate template = Templates.Current;
             if (template == null || string.IsNullOrWhiteSpace(template.Body))
                 return adapter.Get();
-
             try
             {
                 object currentRecord = null;
                 PXCache cache = null;
-
                 // 1. Lấy ScreenInfo từ screen trong template
                 var info = PX.Api.ScreenUtils.ScreenInfo.TryGet(template.Screen);
                 if (info != null)
@@ -211,14 +183,12 @@ namespace AnNhienCafe
                     if (graphType != null)
                     {
                         var graph = (PXGraph)PXGraph.CreateInstance(graphType);
-
                         // 2. Lấy Primary DAC của screen
                         var primaryDAC = graph.PrimaryItemType;
                         if (primaryDAC != null)
                         {
                             cache = graph.Caches[primaryDAC];
                             currentRecord = cache.Current;
-
                             // 3. Nếu Current null → tự lấy record mới nhất
                             if (currentRecord == null)
                             {
@@ -227,9 +197,7 @@ namespace AnNhienCafe
                                     true,
                                     BqlCommand.CreateInstance(typeof(Select<>).MakeGenericType(primaryDAC))
                                 );
-
                                 var records = view.SelectMulti();
-
                                 if (records != null && records.Count > 0)
                                 {
                                     // Nếu DAC có field CreatedDateTime thì chọn record mới nhất
@@ -252,75 +220,108 @@ namespace AnNhienCafe
                         }
                     }
                 }
-
                 // 4. Merge body
                 string mergedHtml = template.Body;
                 if (currentRecord != null && cache != null)
-                {
                     mergedHtml = MergeRecordIntoBody(cache, currentRecord, template.Body);
-                    PXTrace.WriteInformation("Merged HTML after merge: " + mergedHtml);
-                }
-
-                // 5. Strip HTML nhưng giữ xuống hàng
-                string plainText = mergedHtml;
-                plainText = Regex.Replace(plainText, "<script.*?>.*?</script>", string.Empty, RegexOptions.Singleline | RegexOptions.IgnoreCase);
-                plainText = Regex.Replace(plainText, "<style.*?>.*?</style>", string.Empty, RegexOptions.Singleline | RegexOptions.IgnoreCase);
-                // Giữ lại xuống hàng từ <br> và </p>
-                plainText = Regex.Replace(plainText, "<br\\s*/?>", "\n", RegexOptions.IgnoreCase);
-                plainText = Regex.Replace(plainText, "</p>", "\n", RegexOptions.IgnoreCase);
-                // Loại bỏ các thẻ HTML còn lại
-                plainText = Regex.Replace(plainText, "<[^>]+>", string.Empty);
-                plainText = System.Net.WebUtility.HtmlDecode(plainText).Trim();
-                PXTrace.WriteInformation("Plain text after strip with newlines: " + plainText.Replace("\n", "\\n")); // Thay \n bằng \\n để hiển thị trong log
-
-                // 6. Cập nhật cả Body và PreviewMessage với plain text
-                if (plainText.Length > 4000)
-                {
-                    PXTrace.WriteWarning("Plain text length (" + plainText.Length + ") exceeds 4000 characters, truncating.");
-                    plainText = plainText.Substring(0, 4000); // Cắt ngắn nếu vượt quá
-                }
-                Templates.Cache.SetValueExt<ZaloTemplate.body>(template, plainText); // Lưu plain text vào Body
-                Templates.Cache.SetValueExt<ZaloTemplate.previewMessage>(template, plainText); // Lưu plain text vào PreviewMessage
+                // 5. Chuẩn hoá xuống dòng và strip HTML
+                // Replace xuống dòng cho các block tag
+                mergedHtml = Regex.Replace(mergedHtml, @"<(br|BR)\s*/?>", "\n", RegexOptions.IgnoreCase);
+                mergedHtml = Regex.Replace(mergedHtml, @"</(p|div|h[1-6]|li)>", "\n\n", RegexOptions.IgnoreCase);
+                // Xoá script, style
+                mergedHtml = Regex.Replace(mergedHtml, "<script.*?>.*?</script>", string.Empty,
+                    RegexOptions.Singleline | RegexOptions.IgnoreCase);
+                mergedHtml = Regex.Replace(mergedHtml, "<style.*?>.*?</style>", string.Empty,
+                    RegexOptions.Singleline | RegexOptions.IgnoreCase);
+                // ❌ Xoá comment
+                mergedHtml = Regex.Replace(mergedHtml, @"<!--.*?-->", string.Empty,
+                    RegexOptions.Singleline);
+                mergedHtml = Regex.Replace(mergedHtml, @"/\*.*?\*/", string.Empty,
+                    RegexOptions.Singleline);
+                // Bỏ tag HTML còn lại
+                string mergedText = Regex.Replace(mergedHtml, "<.*?>", string.Empty);
+                // Decode HTML entities
+                mergedText = System.Net.WebUtility.HtmlDecode(mergedText);
+                // Chuẩn hoá newline về \n
+                mergedText = mergedText.Replace("\r\n", "\n").Replace("\r", "\n");
+                // Trim khoảng trắng thừa
+                mergedText = Regex.Replace(mergedText, @"[ \t]+\n", "\n");   // xoá space trước newline
+                mergedText = Regex.Replace(mergedText, @"\n{3,}", "\n\n");   // gộp >2 dòng trống về 2
+                
+                // 6. Save preview
+                Templates.Cache.SetValueExt<ZaloTemplate.previewMessage>(template, mergedText);
                 Templates.Cache.Update(template);
-                PXTrace.WriteInformation("Body and PreviewMessage updated with plain text: " + plainText.Replace("\n", "\\n"));
-
-                var bodyFromCache = Templates.Cache.GetValue<ZaloTemplate.body>(template) as string;
-                var previewFromCache = Templates.Cache.GetValue<ZaloTemplate.previewMessage>(template) as string;
-                PXTrace.WriteInformation("Body in cache after update: " + (bodyFromCache?.Replace("\n", "\\n") ?? "null"));
-                PXTrace.WriteInformation("PreviewMessage in cache after update: " + (previewFromCache?.Replace("\n", "\\n") ?? "null"));
+                PXTrace.WriteInformation("Preview plain text: " + mergedText);
             }
             catch (Exception ex)
             {
-                PXTrace.WriteError("PreviewMess error: " + ex.Message + ", StackTrace: " + ex.StackTrace);
+                PXTrace.WriteError(ex);
                 throw;
             }
-
             return adapter.Get();
         }
-
         private string MergeRecordIntoBody(PXCache cache, object record, string body)
         {
-            if (record == null || string.IsNullOrWhiteSpace(body))
+            if (string.IsNullOrWhiteSpace(body))
                 return body;
-
             string result = body;
-
-            foreach (string field in cache.Fields)
+            var graph = cache.Graph;
+            var info = PX.Api.ScreenUtils.ScreenInfo.TryGet(Templates.Current.Screen);
+            if (info != null)
             {
-                // lấy value hiển thị giống UI
-                var state = cache.GetStateExt(record, field) as PXFieldState;
-                string value = state?.Value?.ToString() ?? string.Empty;
-
-                result = result.Replace($"[{field}]", value);
+                foreach (var kv in info.Views)
+                {
+                    var viewName = kv.Key;
+                    if (!graph.Views.ContainsKey(viewName))
+                        continue;
+                    var view = graph.Views[viewName];
+                    var viewCache = view.Cache;
+                    try
+                    {
+                        var records = view.SelectMulti();
+                        if (records != null && records.Count > 0)
+                        {
+                            // Tìm dòng nào trong body có chứa field detail
+                            var lines = result.Split('\n');
+                            var newLines = new List<string>();
+                            foreach (var line in lines)
+                            {
+                                bool isDetailLine = viewCache.Fields.Any(f => line.Contains($"[{f}]"));
+                                if (isDetailLine)
+                                {
+                                    // Nhân bản dòng này cho tất cả records
+                                    foreach (var rec in records)
+                                    {
+                                        string section = line;
+                                        foreach (string field in viewCache.Fields)
+                                        {
+                                            var state = viewCache.GetStateExt(rec, field) as PXFieldState;
+                                            string value = state?.Value?.ToString() ?? string.Empty;
+                                            section = section.Replace($"[{field}]", value);
+                                        }
+                                        newLines.Add(section);
+                                    }
+                                }
+                                else
+                                {
+                                    newLines.Add(line);
+                                }
+                            }
+                            result = string.Join("\n", newLines);
+                        }
+                    }
+                    catch
+                    {
+                        continue;
+                    }
+                }
             }
-
             return result;
         }
 
-
         private bool _isSending = false;
-        public PXAction<ZaloTemplate> SendZaloMessage;
 
+        public PXAction<ZaloTemplate> SendZaloMessage;
         [PXButton(CommitChanges = true)]
         [PXUIField(DisplayName = "Send Zalo Message")]
         public virtual IEnumerable sendZaloMessage(PXAdapter adapter)
