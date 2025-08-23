@@ -388,14 +388,10 @@ namespace AnNhienCafe
                     }
 
                     // 4. Cập nhật kết quả gửi
-                    template.Result = sbResult.ToString();
-                    template.Status = allSuccess ? "Sent" : (successCount > 0 ? "Partial" : "Failed");
                     Templates.Cache.Update(template); // Cập nhật cache trước
-                    PXTrace.WriteInformation("Cache updated - Status: " + template.Status + ", Result: " + template.Result);
 
                     // Lưu vào database
                     this.Actions.PressSave();
-                    PXTrace.WriteInformation("Database save completed for Status: " + template.Status);
 
                     // 5. Hiển thị popup kết quả
                     string title = allSuccess ? "✅ Success" : (successCount > 0 ? "⚠️ Partial Success" : "❌ Failed");
@@ -414,8 +410,6 @@ namespace AnNhienCafe
                     PXTrace.WriteError("Inner exception during message sending: " + ex.Message + ", StackTrace: " + ex.StackTrace);
                     if (Templates.Current != null)
                     {
-                        Templates.Current.Status = "Error";
-                        Templates.Current.Result = ex.Message;
                         Templates.Cache.Update(Templates.Current);
                         this.Actions.PressSave(); // Đảm bảo lưu lỗi
                         PXTrace.WriteInformation("Error state saved - Status: Error, Result: " + ex.Message);
@@ -428,8 +422,6 @@ namespace AnNhienCafe
                 PXTrace.WriteError("Outer exception during sendZaloMessage: " + ex.Message + ", StackTrace: " + ex.StackTrace);
                 if (Templates.Current != null)
                 {
-                    Templates.Current.Status = "Error";
-                    Templates.Current.Result = ex.Message;
                     Templates.Cache.Update(Templates.Current);
                     this.Actions.PressSave();
                     PXTrace.WriteInformation("Error state saved - Status: Error, Result: " + ex.Message);
@@ -463,12 +455,12 @@ namespace AnNhienCafe
             return all.Distinct().ToList();
         }
 
-        public string RefreshZaloToken()
+        public static string RefreshZaloToken()
         {
             try
             {
                 var tokenGraph = PXGraph.CreateInstance<ZaloTokenMaint>();
-                var zaloToken = PXSelect<ZaloToken>.SelectSingleBound(this, null);
+                var zaloToken = PXSelect<ZaloToken>.SelectSingleBound(tokenGraph, null);
 
                 if (zaloToken == null)
                     // Acuminator disable once PX1050 HardcodedStringInLocalizationMethod [Justification]

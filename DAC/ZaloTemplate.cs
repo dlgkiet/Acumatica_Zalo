@@ -168,20 +168,6 @@ namespace AnNhienCafe
         public abstract class previewMessage : PX.Data.BQL.BqlString.Field<previewMessage> { }
         #endregion
 
-        #region Result
-        [PXDBString(4000, IsUnicode = true)]
-        [PXUIField(DisplayName = "Send Result", Enabled = false)]
-        public virtual string Result { get; set; }
-        public abstract class result : PX.Data.BQL.BqlString.Field<result> { }
-        #endregion
-
-        #region Status
-        [PXDBString(50, IsUnicode = true)]
-        [PXUIField(DisplayName = "Send Status", Enabled = false)]
-        public virtual string Status { get; set; }
-        public abstract class status : PX.Data.BQL.BqlString.Field<status> { }
-        #endregion
-
         #region System Columns
         [PXDBCreatedByID]
         [PXUIField(DisplayName = "Created By")]
