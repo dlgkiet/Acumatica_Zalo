@@ -154,8 +154,9 @@ namespace AnNhienCafe
         #endregion
 
         #region Body
-        [PXDBString(4000, IsUnicode = true)]
-        [PXUIField(DisplayName = "Message Body")]
+        [PXDBText(IsUnicode = true)]
+        [PXUIField(DisplayName = "Body")]
+        [PXNoteText] 
         public virtual string Body { get; set; }
         public abstract class body : PX.Data.BQL.BqlString.Field<body> { }
         #endregion
@@ -165,20 +166,6 @@ namespace AnNhienCafe
         [PXUIField(DisplayName = "Preview Message", Enabled = false)]
         public virtual string PreviewMessage { get; set; }
         public abstract class previewMessage : PX.Data.BQL.BqlString.Field<previewMessage> { }
-        #endregion
-
-        #region Result
-        [PXDBString(4000, IsUnicode = true)]
-        [PXUIField(DisplayName = "Send Result", Enabled = false)]
-        public virtual string Result { get; set; }
-        public abstract class result : PX.Data.BQL.BqlString.Field<result> { }
-        #endregion
-
-        #region Status
-        [PXDBString(50, IsUnicode = true)]
-        [PXUIField(DisplayName = "Send Status", Enabled = false)]
-        public virtual string Status { get; set; }
-        public abstract class status : PX.Data.BQL.BqlString.Field<status> { }
         #endregion
 
         #region System Columns

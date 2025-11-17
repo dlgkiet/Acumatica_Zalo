@@ -1,5 +1,6 @@
 ﻿using PX.Common;
 using PX.Data;
+using PX.Data.Licensing;
 using PX.Metadata;
 using PX.Objects.IN;
 using PX.SM;
@@ -8,251 +9,458 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Web.Compilation;
+using PX.Objects.CR;
 
 namespace AnNhienCafe
 {
     [PXCacheName("Zalo Message Templates")]
-    public class ZaloTemplateMaint : PXGraph<ZaloTemplateMaint, ZaloTemplate>
+    public class ZaloTemplateMaint : PXGraph<ZaloTemplateMaint>
     {
-        [PXViewName("Templates")]
+        public PXSave<ZaloTemplate> Save;
+        public PXCancel<ZaloTemplate> Cancel;
+
         public PXSelect<ZaloTemplate> Templates;
         public PXSelect<ZaloTemplate, Where<ZaloTemplate.notificationID, Equal<Current<ZaloTemplate.notificationID>>>> CurrentNotification;
         public PXSelect<INPIHeader, Where<INPIHeader.pIID, Equal<Current<ZaloTemplate.referenceNbr>>>> PIHeader;
+        public PXSelect<SiteMap> DummySiteMap;
 
         public PXSelect<EntityItem> EntityItems;
-
         public IEnumerable entityItems()
         {
-            var current = Templates.Current; // Hoặc CurrentNotification.Current
+            var result = new List<EntityItem>();
+
+            var current = Templates.Current;
             if (current == null || string.IsNullOrEmpty(current.Screen))
-                yield break;
+                return result;
 
             var info = PX.Api.ScreenUtils.ScreenInfo.TryGet(current.Screen);
             if (info == null)
-                yield break;
+                return result;
 
-            // Lấy Graph instance
             var graphType = PXBuildManager.GetType(info.GraphName, false);
             if (graphType == null)
-                yield break;
+                return result;
 
             var graph = (PXGraph)Activator.CreateInstance(graphType);
 
-            // Lấy view chính
-            var view = graph.Views[info.PrimaryView];
-            var cache = view.Cache;
+            var systemAdded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (var field in cache.Fields)
+            foreach (var kv in info.Views)
             {
-                var displayName = PXUIFieldAttribute.GetDisplayName(cache, field) ?? field;
-                yield return new EntityItem
+                var viewName = kv.Key;
+                if (viewName.StartsWith("$", StringComparison.OrdinalIgnoreCase)
+                || viewName.StartsWith("_CACHE#", StringComparison.OrdinalIgnoreCase)
+                || viewName.StartsWith("_", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                var layoutFields = (kv.Value ?? Array.Empty<string>())
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                if (!graph.Views.ContainsKey(viewName))
+                    continue;
+
+                var cache = graph.Views[viewName]?.Cache;
+                if (cache == null)
+                    continue;
+
+                var dacType = cache.GetItemType();
+                var dacName = dacType?.Name ?? string.Empty;
+
+                // Node cha = View name
+                result.Add(new EntityItem
                 {
-                    Key = field,
-                    Name = displayName,
-                    Path = $"[{field}]",
-                    Icon = "Doc"
-                };
+                    Key = viewName,
+                    Name = viewName,
+                    Path = viewName,
+                    Icon = "Folder",
+                    ParentKey = null
+                });
+
+                // Chọn field để hiển thị: ưu tiên layout, nếu trống thì lấy DAC
+                var fieldsToProcess = layoutFields.Count > 0 ? layoutFields : cache.Fields.ToList();
+
+                var addedInThisView = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var field in fieldsToProcess)
+                {
+                    if (!string.IsNullOrEmpty(dacName) &&
+                        string.Equals(field, dacName, StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    if (!addedInThisView.Add(field))
+                        continue;
+
+                    var uiAttr = cache.GetAttributes(field).OfType<PXUIFieldAttribute>().FirstOrDefault();
+                    var displayName = uiAttr?.DisplayName ?? field;
+
+                    if (IsSystemField(field))
+                    {
+                        // Bỏ qua ở đây, vì system field sẽ được ép add riêng ở root
+                        continue;
+                    }
+
+                    // Field thường → con của view
+                    result.Add(new EntityItem
+                    {
+                        Key = $"{viewName}.{field}",
+                        Name = displayName,
+                        Path = $"[{field}]",
+                        Icon = "Doc",
+                        ParentKey = viewName
+                    });
+                }
+
+                // ✅ Ép add toàn bộ system field của DAC này vào root
+                foreach (var sysField in cache.Fields.Where(IsSystemField))
+                {
+                    if (systemAdded.Add(sysField))
+                    {
+                        var uiAttr = cache.GetAttributes(sysField).OfType<PXUIFieldAttribute>().FirstOrDefault();
+                        var displayName = uiAttr?.DisplayName ?? sysField;
+
+                        string extraInfo = null;
+
+                        // Nếu là CreatedByID thì lookup Users
+                        if (string.Equals(sysField, "CreatedByID", StringComparison.OrdinalIgnoreCase))
+                        {
+                            Guid? createdBy = (Guid?)cache.GetValue(cache.Current, sysField);
+                            if (createdBy != null)
+                            {
+                                Users user = PXSelect<Users,
+                                    Where<Users.pKID, Equal<Required<Users.pKID>>>>
+                                    .Select(graph, createdBy);
+                                extraInfo = user?.FullName;
+                            }
+                        }
+                        result.Add(new EntityItem
+                        {
+                            Key = sysField,
+                            Name = string.IsNullOrEmpty(extraInfo)
+                                        ? displayName
+                                        : $"{displayName} ({extraInfo})",
+                            Path = $"[{sysField}]",
+                            Icon = "Doc",
+                            ParentKey = null
+                        });
+                    }
+                }
             }
+
+            return result;
         }
 
-        #region Actions
-        #region Show Preview Message
-        public PXAction<ZaloTemplate> showPreview;
-        [PXButton(CommitChanges = true)]
-        [PXUIField(DisplayName = "Show Preview Message", MapEnableRights = PXCacheRights.Select)]
-        protected virtual IEnumerable ShowPreview(PXAdapter adapter)
+        private static bool IsSystemField(string fieldName)
         {
-            ZaloTemplate current = Templates.Current;
-
-            if (current == null || string.IsNullOrWhiteSpace(current.Body))
+            string[] systemFields =
             {
-                // Acuminator disable once PX1050 HardcodedStringInLocalizationMethod [Justification]
-                throw new PXException("Vui lòng nhập nội dung tin nhắn trong Body (tab Message) trước khi xem Preview.");
-            }
+                "CreatedByID", "CreatedDateTime", "CreatedByScreenID",
+                "LastModifiedByID", "LastModifiedDateTime", "LastModifiedByScreenID",
+                "NoteID", "tstamp"
+            };
+            return systemFields.Contains(fieldName, StringComparer.OrdinalIgnoreCase);
+        }
 
-            if (string.IsNullOrEmpty(current.ReferenceNbr))
-            {
-                // Acuminator disable once PX1050 HardcodedStringInLocalizationMethod [Justification]
-                throw new PXException("Vui lòng chọn Reference Number trước khi xem Preview.");
-            }
-
+        public PXAction<ZaloTemplate> PreviewMess;
+        [PXButton(CommitChanges = true)]
+        [PXUIField(DisplayName = "Show Message Preview")]
+        protected virtual IEnumerable previewMess(PXAdapter adapter)
+        {
+            ZaloTemplate template = Templates.Current;
+            if (template == null || string.IsNullOrWhiteSpace(template.Body))
+                return adapter.Get();
             try
             {
-                PXTrace.WriteInformation("🔍 Đang tạo Preview Message từ Body...");
-
-                // Merge Body với dữ liệu, không lưu DB
-                string previewMessage = MergeInventoryReviewMessage(current.Body, current.ReferenceNbr);
-
-                // Set giá trị preview lên cache (chỉ UI)
-                Templates.Cache.SetValueExt<ZaloTemplate.previewMessage>(current, previewMessage);
-
-                // Refresh UI để hiển thị preview trên edPreviewMessage
-                Templates.View.RequestRefresh();
-
-                PXTrace.WriteInformation("✅ Preview message được tạo thành công từ Body và hiển thị trên UI (chưa lưu DB)");
+                object currentRecord = null;
+                PXCache cache = null;
+                // 1. Lấy ScreenInfo từ screen trong template
+                var info = PX.Api.ScreenUtils.ScreenInfo.TryGet(template.Screen);
+                if (info != null)
+                {
+                    var graphType = PXBuildManager.GetType(info.GraphName, false);
+                    if (graphType != null)
+                    {
+                        var graph = (PXGraph)PXGraph.CreateInstance(graphType);
+                        // 2. Lấy Primary DAC của screen
+                        var primaryDAC = graph.PrimaryItemType;
+                        if (primaryDAC != null)
+                        {
+                            cache = graph.Caches[primaryDAC];
+                            currentRecord = cache.Current;
+                            // 3. Nếu Current null → tự lấy record mới nhất
+                            if (currentRecord == null)
+                            {
+                                var view = new PXView(
+                                    graph,
+                                    true,
+                                    BqlCommand.CreateInstance(typeof(Select<>).MakeGenericType(primaryDAC))
+                                );
+                                var records = view.SelectMulti();
+                                if (records != null && records.Count > 0)
+                                {
+                                    // Nếu DAC có field CreatedDateTime thì chọn record mới nhất
+                                    if (cache.Fields.Contains("CreatedDateTime"))
+                                    {
+                                        currentRecord = records
+                                            .OfType<object>()
+                                            .OrderByDescending(r =>
+                                                cache.GetValue(r, "CreatedDateTime") as DateTime?
+                                            )
+                                            .FirstOrDefault();
+                                    }
+                                    else
+                                    {
+                                        // fallback: lấy record đầu tiên
+                                        currentRecord = records[0];
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                // 4. Merge body
+                string mergedHtml = template.Body;
+                if (currentRecord != null && cache != null)
+                    mergedHtml = MergeRecordIntoBody(cache, currentRecord, template.Body);
+                // 5. Chuẩn hoá xuống dòng và strip HTML
+                // Replace xuống dòng cho các block tag
+                mergedHtml = Regex.Replace(mergedHtml, @"<(br|BR)\s*/?>", "\n", RegexOptions.IgnoreCase);
+                mergedHtml = Regex.Replace(mergedHtml, @"</(p|div|h[1-6]|li)>", "\n\n", RegexOptions.IgnoreCase);
+                // Xoá script, style
+                mergedHtml = Regex.Replace(mergedHtml, "<script.*?>.*?</script>", string.Empty,
+                    RegexOptions.Singleline | RegexOptions.IgnoreCase);
+                mergedHtml = Regex.Replace(mergedHtml, "<style.*?>.*?</style>", string.Empty,
+                    RegexOptions.Singleline | RegexOptions.IgnoreCase);
+                // ❌ Xoá comment
+                mergedHtml = Regex.Replace(mergedHtml, @"<!--.*?-->", string.Empty,
+                    RegexOptions.Singleline);
+                mergedHtml = Regex.Replace(mergedHtml, @"/\*.*?\*/", string.Empty,
+                    RegexOptions.Singleline);
+                // Bỏ tag HTML còn lại
+                string mergedText = Regex.Replace(mergedHtml, "<.*?>", string.Empty);
+                // Decode HTML entities
+                mergedText = System.Net.WebUtility.HtmlDecode(mergedText);
+                // Chuẩn hoá newline về \n
+                mergedText = mergedText.Replace("\r\n", "\n").Replace("\r", "\n");
+                // Trim khoảng trắng thừa
+                mergedText = Regex.Replace(mergedText, @"[ \t]+\n", "\n");   // xoá space trước newline
+                mergedText = Regex.Replace(mergedText, @"\n{3,}", "\n\n");   // gộp >2 dòng trống về 2
+                
+                // 6. Save preview
+                Templates.Cache.SetValueExt<ZaloTemplate.previewMessage>(template, mergedText);
+                Templates.Cache.Update(template);
+                PXTrace.WriteInformation("Preview plain text: " + mergedText);
             }
             catch (Exception ex)
             {
-                PXTrace.WriteError($"❌ Lỗi khi merge và hiển thị preview: {ex.Message}\nStackTrace: {ex.StackTrace}");
-                // Acuminator disable once PX1050 HardcodedStringInLocalizationMethod [Justification]
-                throw new PXException($"Lỗi tạo preview từ Body: {ex.Message}. Vui lòng kiểm tra log để biết chi tiết.");
+                PXTrace.WriteError(ex);
+                throw;
             }
-
-            // Di chuyển Ask ra đây: Framework sẽ xử lý exception dialog tự nhiên (hiển thị popup info, không log error)
-            // Nếu không muốn popup, comment khối này
-            Templates.Ask(
-                "📋 Xem Trước Tin Nhắn",
-                "Tin nhắn từ Body đã được merge và hiển thị ở trường Preview Message trên UI. \n\n" +
-                "Lưu ý: Tin nhắn này chưa được lưu vào database. Nếu muốn gửi, nhấn 'Send Zalo Message'.",
-                MessageButtons.OK
-            );
-
             return adapter.Get();
         }
-        #endregion
+        private string MergeRecordIntoBody(PXCache cache, object record, string body)
+        {
+            if (string.IsNullOrWhiteSpace(body))
+                return body;
+            string result = body;
+            var graph = cache.Graph;
+            var info = PX.Api.ScreenUtils.ScreenInfo.TryGet(Templates.Current.Screen);
+            if (info != null)
+            {
+                foreach (var kv in info.Views)
+                {
+                    var viewName = kv.Key;
+                    if (!graph.Views.ContainsKey(viewName))
+                        continue;
+                    var view = graph.Views[viewName];
+                    var viewCache = view.Cache;
+                    try
+                    {
+                        var records = view.SelectMulti();
+                        if (records != null && records.Count > 0)
+                        {
+                            // Tìm dòng nào trong body có chứa field detail
+                            var lines = result.Split('\n');
+                            var newLines = new List<string>();
+                            foreach (var line in lines)
+                            {
+                                bool isDetailLine = viewCache.Fields.Any(f => line.Contains($"[{f}]"));
+                                if (isDetailLine)
+                                {
+                                    // Nhân bản dòng này cho tất cả records
+                                    foreach (var rec in records)
+                                    {
+                                        string section = line;
+                                        foreach (string field in viewCache.Fields)
+                                        {
+                                            var state = viewCache.GetStateExt(rec, field) as PXFieldState;
+                                            string value = state?.Value?.ToString() ?? string.Empty;
+                                            section = section.Replace($"[{field}]", value);
+                                        }
+                                        newLines.Add(section);
+                                    }
+                                }
+                                else
+                                {
+                                    newLines.Add(line);
+                                }
+                            }
+                            result = string.Join("\n", newLines);
+                        }
+                    }
+                    catch
+                    {
+                        continue;
+                    }
+                }
+            }
+            return result;
+        }
 
-        #region Send Zalo Message
-        public PXAction<ZaloTemplate> sendZaloMessage;
-        [PXButton(CommitChanges = true)] 
-        [PXUIField(DisplayName = "Send Zalo Message", MapEnableRights = PXCacheRights.Select)]
-        protected virtual IEnumerable SendZaloMessage(PXAdapter adapter)
+        private bool _isSending = false;
+
+        public PXAction<ZaloTemplate> SendZaloMessage;
+        [PXButton(CommitChanges = true)]
+        [PXUIField(DisplayName = "Send Zalo Message")]
+        public virtual IEnumerable sendZaloMessage(PXAdapter adapter)
         {
             if (_isSending)
                 return adapter.Get();
 
             _isSending = true;
+
             try
             {
-                var current = Templates.Current;
-
-                if (current == null)
+                var template = Templates.Current;
+                if (template == null)
                     // Acuminator disable once PX1050 HardcodedStringInLocalizationMethod [Justification]
-                    throw new PXException("Vui lòng chọn template để gửi");
+                    throw new PXException("No template selected.");
 
-                if (string.IsNullOrEmpty(current.To))
+                if (string.IsNullOrEmpty(template.To))
                     // Acuminator disable once PX1050 HardcodedStringInLocalizationMethod [Justification]
-                    throw new PXException("Vui lòng nhập Zalo User ID trong trường 'To Users'");
+                    throw new PXException("Please enter the recipient (To) UserID.");
 
-                if (string.IsNullOrWhiteSpace(current.Body))
-                    // Acuminator disable once PX1050 HardcodedStringInLocalizationMethod [Justification]
-                    throw new PXException("Vui lòng nhập nội dung tin nhắn trong Body");
-
-                PXTrace.WriteInformation("🚀 Bắt đầu quá trình gửi tin nhắn Zalo...");
-
-                // 1. Merge message và LUU VÀO DATABASE
-                string mergedMessage = MergeInventoryReviewMessage(current.Body, current.ReferenceNbr);
-                current.PreviewMessage = mergedMessage;
-                Templates.Cache.Update(current); // Lưu vào cache
-
-                PXTrace.WriteInformation("✅ Tin nhắn đã được merge và lưu vào database");
-
-                // 2. Lấy access token
-                var accessToken = RefreshZaloToken();
-                if (string.IsNullOrEmpty(accessToken))
-                    // Acuminator disable once PX1050 HardcodedStringInLocalizationMethod [Justification]
-                    throw new PXException("Không thể lấy access token từ Zalo");
-
-                // 3. Gửi tin nhắn
-                var allRecipients = SplitRecipients(current.To, current.Cc, current.Bcc)
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToList();
-
-                var sbResult = new StringBuilder();
-                sbResult.AppendLine("📤 KẾT QUẢ GỬI TIN NHẮN:");
-                sbResult.AppendLine($"⏰ Thời gian: {DateTime.Now:dd/MM/yyyy HH:mm:ss}");
-                sbResult.AppendLine($"📝 Nội dung: {(mergedMessage.Length > 50 ? mergedMessage.Substring(0, 50) + "..." : mergedMessage)}");
-                sbResult.AppendLine($"👥 Số người nhận: {allRecipients.Count}");
-                sbResult.AppendLine("");
-
-                bool allSuccess = true;
-                int successCount = 0;
-                int failCount = 0;
-
-                foreach (string userID in allRecipients)
+                try
                 {
-                    try
-                    {
-                        PXTrace.WriteInformation($"📤 Đang gửi tin nhắn đến ZaloUserID: {userID}");
-                        string response = ZaloApiService.SendTextMessage(accessToken, userID, mergedMessage);
+                    // 1. Tái sử dụng PreviewMess để merge message trước khi gửi
+                    previewMess(adapter);
 
-                        if (ZaloApiService.IsSuccessResponse(response))
+                    // Reload lại template sau khi update PreviewMessage
+                    template = Templates.Current;
+                    PXTrace.WriteInformation("Reloaded Template PreviewMessage: " + (template.PreviewMessage ?? "null"));
+
+                    var accessToken = RefreshZaloToken();
+                    if (string.IsNullOrEmpty(accessToken))
+                        // Acuminator disable once PX1050 HardcodedStringInLocalizationMethod [Justification]
+                        throw new PXException("Không thể lấy access token từ Zalo");
+
+                    // 2. Lấy danh sách recipients
+                    var allRecipients = SplitRecipients(template.To, template.Cc, template.Bcc)
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+                    PXTrace.WriteInformation("Total recipients: " + allRecipients.Count + ", List: " + string.Join(", ", allRecipients));
+
+                    var sbResult = new StringBuilder();
+                    bool allSuccess = true;
+                    int successCount = 0;
+                    int failCount = 0;
+
+                    // 3. Gửi tin nhắn đến từng recipient
+                    foreach (string userID in allRecipients)
+                    {
+                        PXTrace.WriteInformation("Sending message to ZaloUserID: " + userID);
+                        string result = ZaloApiService.SendMessage(accessToken, userID, template.PreviewMessage ?? "");
+                        PXTrace.WriteInformation("API Response for " + userID + ": " + (result ?? "null"));
+
+                        sbResult.AppendLine($"- {userID}: {result ?? "No response"}");
+
+                        if (result != null && result.Contains("Success"))
                         {
-                            sbResult.AppendLine($"✅ {userID}: Gửi thành công");
                             successCount++;
                         }
                         else
                         {
-                            sbResult.AppendLine($"❌ {userID}: {response}");
-                            allSuccess = false;
                             failCount++;
+                            allSuccess = false;
                         }
                     }
-                    catch (Exception ex)
-                    {
-                        sbResult.AppendLine($"❌ {userID}: Lỗi - {ex.Message}");
-                        allSuccess = false;
-                        failCount++;
-                        PXTrace.WriteError($"❌ Error sending to {userID}: {ex.Message}");
-                    }
+
+                    // 4. Cập nhật kết quả gửi
+                    Templates.Cache.Update(template); // Cập nhật cache trước
+
+                    // Lưu vào database
+                    this.Actions.PressSave();
+
+                    // 5. Hiển thị popup kết quả
+                    string title = allSuccess ? "✅ Success" : (successCount > 0 ? "⚠️ Partial Success" : "❌ Failed");
+                    string message = allSuccess
+                        ? "Tất cả tin nhắn đã gửi thành công!"
+                        : (successCount > 0
+                            ? $"Gửi thành công {successCount} tin nhắn, thất bại {failCount} tin nhắn."
+                            : "Gửi tin nhắn thất bại. Vui lòng kiểm tra lại.");
+                    PXTrace.WriteInformation("Popup to display - Title: " + title + ", Message: " + message);
+
+                    var dialogResult = Templates.Ask(title, message, MessageButtons.OK);
+                    PXTrace.WriteInformation("Popup closed with result: " + dialogResult);
                 }
-
-                // 4. Cập nhật kết quả vào database
-                sbResult.AppendLine("");
-                sbResult.AppendLine($"📊 TỔNG KẾT:");
-                sbResult.AppendLine($"✅ Thành công: {successCount}");
-                sbResult.AppendLine($"❌ Thất bại: {failCount}");
-
-                current.Result = sbResult.ToString();
-                current.Status = allSuccess ? "Sent" : (successCount > 0 ? "Partial" : "Failed");
-                Templates.Cache.Update(current);
-
-                // 5. Lưu vào database
-                this.Actions.PressSave();
-
-                PXTrace.WriteInformation($"✅ Hoàn tất gửi tin nhắn. Thành công: {successCount}, Thất bại: {failCount}");
-
-                // 6. Thông báo kết quả cho user
-                string title = allSuccess ? "🎉 GỬI THÀNH CÔNG" :
-                              (successCount > 0 ? "⚠️ GỬI THÀNH CÔNG MỘT PHẦN" : "❌ GỬI THẤT BẠI");
-
-                // Nếu user bấm OK -> chỉ return adapter.Get(), không chạy lại action gửi
-                if (Templates.Ask(title, sbResult.ToString(), MessageButtons.OK) == WebDialogResult.OK)
+                catch (Exception ex)
                 {
-                    return adapter.Get();
+                    PXTrace.WriteError("Inner exception during message sending: " + ex.Message + ", StackTrace: " + ex.StackTrace);
+                    if (Templates.Current != null)
+                    {
+                        Templates.Cache.Update(Templates.Current);
+                        this.Actions.PressSave(); // Đảm bảo lưu lỗi
+                        PXTrace.WriteInformation("Error state saved - Status: Error, Result: " + ex.Message);
+                    }
+                    Templates.Ask("❌ Error", ex.Message, MessageButtons.OK);
                 }
-            }
-            catch (PXException)
-            {
-                throw;
             }
             catch (Exception ex)
             {
-                PXTrace.WriteError($"❌ Send message error: {ex.Message}");
-                // Acuminator disable once PX1050 HardcodedStringInLocalizationMethod [Justification]
-                throw new PXException($"Lỗi gửi tin nhắn Zalo: {ex.Message}");
+                PXTrace.WriteError("Outer exception during sendZaloMessage: " + ex.Message + ", StackTrace: " + ex.StackTrace);
+                if (Templates.Current != null)
+                {
+                    Templates.Cache.Update(Templates.Current);
+                    this.Actions.PressSave();
+                    PXTrace.WriteInformation("Error state saved - Status: Error, Result: " + ex.Message);
+                }
+                Templates.Ask("❌ Error", ex.Message, MessageButtons.OK);
             }
             finally
             {
-                _isSending = false;
+                _isSending = false; // reset flag
+                PXTrace.WriteInformation("Ending sendZaloMessage action");
             }
 
             return adapter.Get();
         }
-        #endregion
 
-        #endregion
+        private List<string> SplitRecipients(params string[] fields)
+        {
+            var all = new List<string>();
 
-        #region Helper Methods
+            foreach (var field in fields)
+            {
+                if (string.IsNullOrWhiteSpace(field)) continue;
 
-        private bool _isSending = false;
+                var items = field.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries)
+                                 .Select(x => x.Trim())
+                                 .Where(x => !string.IsNullOrWhiteSpace(x));
 
-        public string RefreshZaloToken()
+                all.AddRange(items);
+            }
+
+            return all.Distinct().ToList();
+        }
+
+        public static string RefreshZaloToken()
         {
             try
             {
                 var tokenGraph = PXGraph.CreateInstance<ZaloTokenMaint>();
-                var zaloToken = PXSelect<ZaloToken>.SelectSingleBound(this, null);
+                var zaloToken = PXSelect<ZaloToken>.SelectSingleBound(tokenGraph, null);
 
                 if (zaloToken == null)
                     // Acuminator disable once PX1050 HardcodedStringInLocalizationMethod [Justification]
@@ -284,154 +492,5 @@ namespace AnNhienCafe
             }
         }
 
-        private List<string> ParseZaloUserIds(string userIdsString)
-        {
-            if (string.IsNullOrEmpty(userIdsString))
-                return new List<string>();
-
-            return userIdsString
-                .Split(new char[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries)
-                .Select(id => id.Trim())
-                .Where(id => !string.IsNullOrEmpty(id))
-                .ToList();
-        }
-
-        public List<string> SplitRecipients(params string[] fields)
-        {
-            var all = new List<string>();
-            foreach (var field in fields)
-            {
-                if (string.IsNullOrWhiteSpace(field)) continue;
-                var items = field.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries)
-                                 .Select(x => x.Trim())
-                                 .Where(x => !string.IsNullOrWhiteSpace(x));
-                all.AddRange(items);
-            }
-            return all.Distinct().ToList();
-        }
-
-        public string MergeInventoryReviewMessage(string templateBody, string referenceNbr)
-        {
-            try
-            {
-                PXTrace.WriteInformation($"🔄 Đang merge template với Reference Nbr: {referenceNbr}");
-
-                INPIHeader pi = PXSelect<INPIHeader,
-                    Where<INPIHeader.pIID, Equal<Required<INPIHeader.pIID>>>>
-                    .Select(this, referenceNbr);
-
-                if (pi == null)
-                    // Acuminator disable once PX1050 HardcodedStringInLocalizationMethod [Justification]
-                    throw new PXException($"Không tìm thấy phiếu kiểm kê với mã PIID = {referenceNbr}");
-
-                INSite site = PXSelect<INSite,
-                    Where<INSite.siteID, Equal<Required<INSite.siteID>>>>
-                    .Select(this, pi.SiteID);
-
-                string chiNhanhTen = site != null ? $"{site.SiteCD}" : pi.SiteID?.ToString() ?? "Không rõ";
-
-                Users user = PXSelect<Users,
-                    Where<Users.pKID, Equal<Required<Users.pKID>>>>
-                    .Select(this, pi.CreatedByID);
-
-                string nguoiKiemKe = user?.FullName ?? "Không rõ";
-
-                var chiTietList = new List<ChenhlechItem>();
-                foreach (INPIDetail detail in PXSelect<INPIDetail,
-                    Where<INPIDetail.pIID, Equal<Required<INPIDetail.pIID>>>>
-                    .Select(this, pi.PIID))
-                {
-                    if (detail.InventoryID == null) continue;
-                    InventoryItem item = PXSelect<InventoryItem,
-                        Where<InventoryItem.inventoryID, Equal<Required<InventoryItem.inventoryID>>>>
-                        .Select(this, detail.InventoryID);
-
-                    string tenSP = item?.InventoryCD ?? $"ID {detail.InventoryID}";
-                    int bookQty = (int)Math.Round(detail.BookQty ?? 0);
-                    int thucTe = (int)Math.Round(detail.PhysicalQty ?? 0);
-                    int chenhlech = (int)Math.Round(detail.VarQty ?? 0);
-                    decimal tienChenh = detail.ExtVarCost ?? 0m;
-
-                    chiTietList.Add(new ChenhlechItem
-                    {
-                        TenSP = tenSP,
-                        SoSach = bookQty,
-                        ThucTe = thucTe,
-                        ChenhLech = chenhlech,
-                        TienChenhLech = $"{(tienChenh >= 0 ? "" : "-")}{string.Format("{0:#,0}", Math.Abs(tienChenh))} đ"
-                    });
-                }
-
-                string formattedChiTiet = ZaloMessageBuilder.FormatChenhlechLines(chiTietList);
-                int tongQty = (int)(pi.TotalVarQty ?? 0);
-                int tongTien = (int)(pi.TotalVarCost ?? 0);
-                string tongText = $"{tongQty} sản phẩm ({ZaloMessageBuilder.FormatTien(tongTien)})";
-
-                string mergedMessage = ZaloMessageBuilder.BuildMessage(templateBody, new
-                {
-                    ChiNhanh = chiNhanhTen,
-                    NgayKiemKe = pi.CreatedDateTime?.ToString("dd/MM/yyyy") ?? "",
-                    NguoiKiemKe = nguoiKiemKe,
-                    SoPhieu = pi.PIID,
-                    TongChenhlech = tongText,
-                    ChiTietChenhlech = formattedChiTiet
-                });
-
-                PXTrace.WriteInformation($"✅ Template đã được merge thành công. Độ dài: {mergedMessage.Length} ký tự");
-                return mergedMessage;
-            }
-            catch (Exception ex)
-            {
-                PXTrace.WriteError($"❌ Error in MergeInventoryReviewMessage: {ex.Message}");
-                throw;
-            }
-        }
-
-        #endregion
-
-        #region Event Handlers
-
-        protected virtual void ZaloTemplate_RowSelected(PXCache sender, PXRowSelectedEventArgs e)
-        {
-            ZaloTemplate row = e.Row as ZaloTemplate;
-            if (row == null) return;
-
-            // Luôn enable các nút Show Preview và Send Zalo Message
-            showPreview.SetEnabled(true);
-            sendZaloMessage.SetEnabled(true);
-        }
-
-        protected virtual void ZaloTemplate_Body_FieldUpdated(PXCache sender, PXFieldUpdatedEventArgs e)
-        {
-            // Clear preview message khi user thay đổi body
-            ZaloTemplate row = e.Row as ZaloTemplate;
-            if (row != null && !string.IsNullOrEmpty(row.PreviewMessage))
-            {
-                // Chỉ clear preview trên UI, không update DB
-                sender.SetValueExt<ZaloTemplate.previewMessage>(row, null);
-            }
-        }
-
-        protected virtual void ZaloTemplate_ReferenceNbr_FieldUpdated(PXCache sender, PXFieldUpdatedEventArgs e)
-        {
-            // Clear preview message khi user thay đổi reference number
-            ZaloTemplate row = e.Row as ZaloTemplate;
-            if (row != null && !string.IsNullOrEmpty(row.PreviewMessage))
-            {
-                // Chỉ clear preview trên UI, không update DB
-                sender.SetValueExt<ZaloTemplate.previewMessage>(row, null);
-            }
-        }
-
-        #endregion
-    }
-
-    public class ChenhlechItem
-    {
-        public string TenSP { get; set; }
-        public int SoSach { get; set; }
-        public int ThucTe { get; set; }
-        public int ChenhLech { get; set; }
-        public string TienChenhLech { get; set; }
     }
 }

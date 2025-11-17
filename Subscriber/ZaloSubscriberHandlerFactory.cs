@@ -103,8 +103,8 @@ namespace AnNhienCafe
                 newTemplate.Description = "NEW";
                 newTemplate.Subject = "";
                 newTemplate.Screen = maintGraph.Events.Current.ScreenID;
-                newTemplate.Body = "An Nhiên Cafe - Thông báo kết quả kiểm kê:\r\n\n- Chi nhánh: {{ChiNhanh}}\r\n- Ngày kiểm kê: {{NgayKiemKe}}\r\n- Người kiểm kê: {{NguoiKiemKe}}\r\nSố phiếu kiểm kê. {{SoPhieu}}\r\n\nTổng chênh lệch: {{TongChenhlech}}:\r\n\n{{ChiTietChenhlech}}\r\nVui lòng kiểm tra lại phiếu và phản hồi nếu có sai lệch.";
-                newTemplate.ActivityType = "ZALO";
+                newTemplate.Body = "";
+                newTemplate.ActivityType = "ZALO"; 
 
                 var inserted = cache.Insert(newTemplate);
                 graph.Templates.Current = (ZaloTemplate)inserted;

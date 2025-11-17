@@ -67,7 +67,6 @@
     <Compile Include="DAC\ZaloToken.cs" />
     <Compile Include="DAC\ZaloUser.cs" />
     <Compile Include="Graph\PhysicalInventoryReviewMaint.cs" />
-    <Compile Include="Service\MessageMergeHelper.cs" />
     <Compile Include="Service\ZaloApiService.cs" />
     <Compile Include="Graph\ZaloTokenMaint.cs" />
     <Compile Include="Graph\ZaloUserMaint.cs" />
@@ -75,10 +74,8 @@
     <Compile Include="Graph\ZaloTemplateMaint.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Subscriber\ZaloFactoryRegistration.cs" />
-    <Compile Include="Service\ZaloMessageBuilder.cs" />
     <Compile Include="Subscriber\ZaloSubscriberEventAction.cs" />
     <Compile Include="Subscriber\ZaloSubscriberHandlerFactory.cs" />
-    <Compile Include="Subscriber\ZaloSubscriberMessages.cs" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Bcl.AsyncInterfaces">

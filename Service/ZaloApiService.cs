@@ -38,7 +38,7 @@ namespace AnNhienCafe
         /// <param name="zaloUserId">Zalo User ID người nhận</param>
         /// <param name="message">Nội dung tin nhắn</param>
         /// <returns>JSON response từ Zalo API (thành công hoặc error)</returns>
-        public static string SendTextMessage(string accessToken, string zaloUserId, string message)
+        public static string SendMessage(string accessToken, string zaloUserId, string message)
         {
             var url = "https://openapi.zalo.me/v3.0/oa/message/cs";
 
