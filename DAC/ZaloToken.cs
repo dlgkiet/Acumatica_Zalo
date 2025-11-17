@@ -17,21 +17,21 @@ namespace AnNhienCafe
 
         #region AppID
         [PXDBString(100, IsUnicode = true)]
-        [PXUIField(DisplayName = "App ID")]
+        [PXUIField(DisplayName = "App ID", Enabled = true)]
         public virtual string AppID { get; set; }
         public abstract class appID : PX.Data.BQL.BqlString.Field<appID> { }
         #endregion
 
         #region AppSecret
         [PXDBString(200, IsUnicode = true)]
-        [PXUIField(DisplayName = "App Secret")]
+        [PXUIField(DisplayName = "App Secret", Enabled = true)]
         public virtual string AppSecret { get; set; }
         public abstract class appSecret : PX.Data.BQL.BqlString.Field<appSecret> { }
         #endregion
 
         #region RefreshToken
         [PXDBString(500, IsUnicode = true)]
-        [PXUIField(DisplayName = "Refresh Token")]
+        [PXUIField(DisplayName = "Refresh Token", Enabled = true)]
         public virtual string RefreshToken { get; set; }
         public abstract class refreshToken : PX.Data.BQL.BqlString.Field<refreshToken> { }
         #endregion

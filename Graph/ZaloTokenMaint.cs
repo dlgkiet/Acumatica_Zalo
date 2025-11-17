@@ -165,54 +165,5 @@ namespace AnNhienCafe
             return adapter.Get();
         }
         #endregion
-
-        #region
-        public PXProcessing<ZaloToken> AutoZaloTokens;
-        public PXAction<ZaloToken> AutoRefreshToken;
-        [PXProcessButton]
-        [PXUIField(DisplayName = "Auto Refresh Token", Visible = false)] // Ẩn nút khỏi UI
-        public virtual IEnumerable autoRefreshToken(PXAdapter adapter)
-        {
-            AutoZaloTokens.SetProcessDelegate(AutoProcessZaloToken);
-            return adapter.Get();
-        }
-
-        public static void AutoProcessZaloToken(ZaloToken token)
-        {
-            if (token == null) return;
-
-            if (token.AccessTokenExpiredAt.HasValue && token.AccessTokenExpiredAt.Value > DateTime.Now)
-            {
-                PXTrace.WriteInformation($"⏩ Token còn hạn đến {token.AccessTokenExpiredAt}, bỏ qua.");
-                return;
-            }
-
-            var graph = PXGraph.CreateInstance<ZaloTokenMaint>();
-            graph.ZaloToken.Current = token;
-
-            try
-            {
-                PXTrace.WriteInformation("🔄 Đang tự động gọi API Zalo...");
-                string response = ZaloApiService.RefreshToken(
-                    token.AppID,
-                    token.AppSecret,
-                    token.RefreshToken
-                );
-
-                graph.UpdateTokenFromResponse(token, response);
-
-                graph.ZaloToken.Update(token);
-                graph.Actions.PressSave();
-
-                PXTrace.WriteInformation($"✅ Token cho {token.AppID} đã được cập nhật.");
-            }
-            catch (Exception ex)
-            {
-                PXTrace.WriteError($"❌ Lỗi cập nhật token: {ex.Message}");
-                throw;
-            }
-        }
-
-        #endregion
     }
 }
